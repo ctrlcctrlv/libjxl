@@ -36,6 +36,7 @@ bool LoadJpegXlImage(const gchar *const filename, gint32 *const image_id) {
   GimpColorProfile *profile_icc = nullptr;
   GimpColorProfile *profile_int = nullptr;
   bool is_linear = false;
+  bool last_frame_blank = false;
   unsigned long xsize = 0, ysize = 0;
   long crop_x0 = 0, crop_y0 = 0;
   size_t layer_idx = 0;
@@ -343,12 +344,15 @@ bool LoadJpegXlImage(const gchar *const filename, gint32 *const image_id) {
       if (layer_idx == 0 && !info.have_animation) {
         layer_name = g_strdup_printf("Background");
       } else {
-        if (frame_duration == 0) continue;
+        if (frame_duration == 0) {
+          last_frame_blank = true;
+          continue;
+        }
         const GString *blend_null_flag = g_string_new("");
         const GString *blend_replace_flag = g_string_new(" (replace)");
         const GString *blend_combine_flag = g_string_new(" (combine)");
         GString *blend;
-        if (blend_mode == JXL_BLEND_REPLACE) {
+        if (blend_mode == JXL_BLEND_REPLACE || last_frame_blank) {
           blend = (GString *)blend_replace_flag;
         } else if (blend_mode == JXL_BLEND_BLEND) {
           blend = (GString *)blend_combine_flag;
@@ -401,6 +405,7 @@ bool LoadJpegXlImage(const gchar *const filename, gint32 *const image_id) {
 
       g_clear_object(&buffer);
       if (stop_processing) status = JXL_DEC_SUCCESS;
+      last_frame_blank = false;
       g_free(layer_name);
       layer_idx++;
     } else if (status == JXL_DEC_FRAME) {
