@@ -343,6 +343,7 @@ bool LoadJpegXlImage(const gchar *const filename, gint32 *const image_id) {
       if (layer_idx == 0 && !info.have_animation) {
         layer_name = g_strdup_printf("Background");
       } else {
+        if (frame_duration == 0) continue;
         const GString *blend_null_flag = g_string_new("");
         const GString *blend_replace_flag = g_string_new(" (replace)");
         const GString *blend_combine_flag = g_string_new(" (combine)");
