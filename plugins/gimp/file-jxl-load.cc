@@ -348,16 +348,13 @@ bool LoadJpegXlImage(const gchar *const filename, gint32 *const image_id) {
           last_frame_blank = true;
           continue;
         }
-        const GString *blend_null_flag = g_string_new("");
-        const GString *blend_replace_flag = g_string_new(" (replace)");
-        const GString *blend_combine_flag = g_string_new(" (combine)");
         GString *blend;
         if (blend_mode == JXL_BLEND_REPLACE || last_frame_blank) {
-          blend = (GString *)blend_replace_flag;
+          blend = (GString *)GIMP_BLEND_REPLACE_FLAG;
         } else if (blend_mode == JXL_BLEND_BLEND) {
-          blend = (GString *)blend_combine_flag;
+          blend = (GString *)GIMP_BLEND_COMBINE_FLAG;
         } else {
-          blend = (GString *)blend_null_flag;
+          blend = (GString *)GIMP_BLEND_NULL_FLAG;
         }
         char *temp_frame_name = nullptr;
         bool must_free_frame_name = false;
