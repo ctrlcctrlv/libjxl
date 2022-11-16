@@ -83,9 +83,10 @@ bool LoadJpegXlImage(const gchar *const filename, gint32 *const image_id) {
 
   auto dec = JxlDecoderMake(nullptr);
   if (JXL_DEC_SUCCESS !=
-      JxlDecoderSubscribeEvents(dec.get(),
-                                JXL_DEC_BASIC_INFO | JXL_DEC_COLOR_ENCODING |
-                                    JXL_DEC_FULL_IMAGE | JXL_DEC_FRAME)) {
+      JxlDecoderSubscribeEvents(
+          dec.get(), JXL_DEC_BASIC_INFO | JXL_DEC_COLOR_ENCODING |
+                         JXL_DEC_FULL_IMAGE | JXL_DEC_FRAME_PROGRESSION |
+                         JXL_DEC_FRAME)) {
     g_printerr(LOAD_PROC " Error: JxlDecoderSubscribeEvents failed\n");
     return false;
   }
@@ -96,6 +97,12 @@ bool LoadJpegXlImage(const gchar *const filename, gint32 *const image_id) {
     g_printerr(LOAD_PROC " Error: JxlDecoderSetParallelRunner failed\n");
     return false;
   }
+  // TODO: make this work with coalescing set to false, while handling frames
+  // with duration 0 and references to earlier frames correctly.
+  if (JXL_DEC_SUCCESS != JxlDecoderSetCoalescing(dec.get(), JXL_TRUE)) {
+    g_printerr(LOAD_PROC " Error: JxlDecoderSetCoalescing failed\n");
+    return false;
+  }
 
   if (JXL_DEC_SUCCESS != JxlDecoderSetCoalescing(dec.get(), JXL_FALSE)) {
     g_printerr(LOAD_PROC " Error: JxlDecoderSetCoalescing failed\n");
@@ -104,6 +111,12 @@ bool LoadJpegXlImage(const gchar *const filename, gint32 *const image_id) {
 
   // grand decode loop...
   JxlDecoderSetInput(dec.get(), compressed.data(), compressed.size());
+
+  if (JXL_DEC_SUCCESS != JxlDecoderSetProgressiveDetail(
+                             dec.get(), JxlProgressiveDetail::kPasses)) {
+    g_printerr(LOAD_PROC " Error: JxlDecoderSetProgressiveDetail failed\n");
+    return false;
+  }
 
   while (true) {
     gimp_load_progress.update();
@@ -348,13 +361,16 @@ bool LoadJpegXlImage(const gchar *const filename, gint32 *const image_id) {
           last_frame_blank = true;
           continue;
         }
+        const GString *blend_null_flag = g_string_new("");
+        const GString *blend_replace_flag = g_string_new(" (replace)");
+        const GString *blend_combine_flag = g_string_new(" (combine)");
         GString *blend;
-        if (blend_mode == JXL_BLEND_REPLACE || last_frame_blank) {
-          blend = (GString *)GIMP_BLEND_REPLACE_FLAG;
+        if (blend_mode == JXL_BLEND_REPLACE) {
+          blend = (GString *)blend_replace_flag;
         } else if (blend_mode == JXL_BLEND_BLEND) {
-          blend = (GString *)GIMP_BLEND_COMBINE_FLAG;
+          blend = (GString *)blend_combine_flag;
         } else {
-          blend = (GString *)GIMP_BLEND_NULL_FLAG;
+          blend = (GString *)blend_null_flag;
         }
         char *temp_frame_name = nullptr;
         bool must_free_frame_name = false;
@@ -401,8 +417,9 @@ bool LoadJpegXlImage(const gchar *const filename, gint32 *const image_id) {
       gimp_item_transform_translate(layer, crop_x0, crop_y0);
 
       g_clear_object(&buffer);
+      g_free(pixels_buffer_1);
+      g_free(pixels_buffer_2);
       if (stop_processing) status = JXL_DEC_SUCCESS;
-      last_frame_blank = false;
       g_free(layer_name);
       layer_idx++;
     } else if (status == JXL_DEC_FRAME) {
@@ -437,14 +454,12 @@ bool LoadJpegXlImage(const gchar *const filename, gint32 *const image_id) {
       // It's not required to call JxlDecoderReleaseInput(dec.get())
       // since the decoder will be destroyed.
       break;
-    } else if (status == JXL_DEC_NEED_MORE_INPUT) {
-      if (pixels_buffer_1 == nullptr) {
-        if (!SetJpegXlOutBuffer(&dec, &format, &buffer_size, &pixels_buffer_1))
-          return false;
-      }
+    } else if (status == JXL_DEC_NEED_MORE_INPUT ||
+               status == JXL_DEC_FRAME_PROGRESSION) {
+      stop_processing = status != JXL_DEC_FRAME_PROGRESSION;
       if (JxlDecoderFlushImage(dec.get()) == JXL_DEC_SUCCESS) {
         status = JXL_DEC_FULL_IMAGE;
-        stop_processing = true;
+        stop_processing = status == JXL_DEC_NEED_MORE_INPUT;
         continue;
       }
       g_printerr(LOAD_PROC " Error: Already provided all input\n");
